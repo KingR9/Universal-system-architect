@@ -1,5 +1,3 @@
-# Calyb Engineering Challenge Submission
-
 ## Overview
 
 This repository contains a comprehensive solution for reverse-engineering and mapping software workflows in an automated, platform-agnostic manner.
