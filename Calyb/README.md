@@ -302,7 +302,7 @@ python3 tools/dry_run_executor.py workflow_map.json
 
 ---
 
-## Key Design Decisions
+## Key Decisions
 
 ### 1. No Hardcoded Credentials
 - Workflow files contain no API tokens or passwords
@@ -360,27 +360,6 @@ Simple excerpt showing dependency tracking:
 ```
 
 This shows how Step 3 uses outputs from Steps 1 and 2.
-
----
-
-## Assignment Requirements Met
-
-**Goal 1: Sequence Discovery**
-- Complete UI → API mapping documented
-- All API mutations identified with exact parameters
-- Semantic gaps documented (UI terms → API fields)
-
-**Goal 2: Structural Standardization**
-- Machine-readable JSON format
-- Handles inputs, outputs, dependencies
-- Can be parsed by automation engines
-
-**Goal 3: Universal Generalization**
-- Methodology works for any SaaS platform
-- approach.md explains the 7-phase algorithm
-- Examples show application to Salesforce, Jira, HubSpot
-
----
 
 ## Testing
 
