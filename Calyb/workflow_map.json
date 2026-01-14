@@ -1,0 +1,431 @@
+{
+  "metadata": {
+    "workflow_name": "create_black_friday_promotion",
+    "workflow_id": "vendure_promotion_bf2024",
+    "platform": "vendure",
+    "platform_version": "2.x",
+    "api_protocol": "graphql",
+    "schema_version": "1.0.0",
+    "created_at": "2026-01-11T00:00:00Z",
+    "owner": "workflow-engine",
+    "idempotent": true,
+    "description": "Creates a Black Friday coupon with conditional discounts based on order total and customer group membership"
+  },
+
+  "inputs": {
+    "required": {
+      "coupon_code": {
+        "type": "string",
+        "description": "Unique promotion code",
+        "example": "BF2024",
+        "validation": {
+          "pattern": "^[A-Z0-9]{4,20}$",
+          "max_length": 20
+        }
+      },
+      "discount_percentage": {
+        "type": "integer",
+        "description": "Discount percentage to apply",
+        "example": 15,
+        "validation": {
+          "min": 1,
+          "max": 100
+        }
+      },
+      "min_order_total_usd": {
+        "type": "number",
+        "description": "Minimum order total in USD",
+        "example": 100,
+        "validation": {
+          "min": 0
+        }
+      },
+      "eligible_customer_group": {
+        "type": "string",
+        "description": "Customer group name eligible for promotion",
+        "example": "VIP"
+      }
+    },
+    "optional": {
+      "enabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether promotion is active immediately"
+      },
+      "start_date": {
+        "type": "datetime",
+        "default": null,
+        "description": "Promotion start date (null = immediate)"
+      },
+      "end_date": {
+        "type": "datetime",
+        "default": null,
+        "description": "Promotion end date (null = no expiry)"
+      },
+      "per_customer_limit": {
+        "type": "integer",
+        "default": null,
+        "description": "Max uses per customer"
+      }
+    }
+  },
+
+  "security": {
+    "auth_required": true,
+    "minimum_role": "admin",
+    "permissions": [
+      "CreatePromotion",
+      "UpdatePromotion",
+      "ReadCustomerGroup"
+    ],
+    "secrets_handling": "runtime_injected",
+    "audit_log": true,
+    "rate_limit": {
+      "max_requests": 10,
+      "window_seconds": 60
+    },
+    "data_classification": "internal",
+    "pii_fields": []
+  },
+
+  "validation": {
+    "pre_conditions": [
+      {
+        "id": "check_auth",
+        "type": "security",
+        "description": "Verify user has admin role",
+        "critical": true
+      },
+      {
+        "id": "check_customer_group_exists",
+        "type": "data_integrity",
+        "query": "query { customerGroups { items { name } } }",
+        "condition": "$.items[?(@.name == '{{inputs.eligible_customer_group}}')]",
+        "error_message": "Customer group '{{inputs.eligible_customer_group}}' does not exist",
+        "critical": true
+      },
+      {
+        "id": "check_promotion_code_unique",
+        "type": "data_integrity",
+        "query": "query { promotions { items { couponCode } } }",
+        "condition": "$.items[?(@.couponCode == '{{inputs.coupon_code}}')].length == 0",
+        "error_message": "Promotion code '{{inputs.coupon_code}}' already exists",
+        "critical": true
+      }
+    ],
+    "post_conditions": [
+      {
+        "id": "verify_promotion_created",
+        "type": "state_verification",
+        "description": "Verify promotion exists with correct configuration",
+        "query": "query { promotion(id: \"{{steps.create_promotion.outputs.promotion_id}}\") { id enabled couponCode } }",
+        "condition": "$.id != null && $.couponCode == '{{inputs.coupon_code}}'"
+      },
+      {
+        "id": "verify_conditions_attached",
+        "type": "state_verification",
+        "description": "Verify both conditions are properly configured",
+        "query": "query { promotion(id: \"{{steps.create_promotion.outputs.promotion_id}}\") { conditions { code args } } }",
+        "condition": "$.conditions.length >= 2"
+      },
+      {
+        "id": "verify_action_attached",
+        "type": "state_verification",
+        "description": "Verify discount action is configured",
+        "query": "query { promotion(id: \"{{steps.create_promotion.outputs.promotion_id}}\") { actions { code args } } }",
+        "condition": "$.actions.length >= 1"
+      }
+    ]
+  },
+
+  "steps": [
+    {
+      "id": "resolve_customer_group_id",
+      "sequence": 1,
+      "operation": "query",
+      "api_endpoint": "customerGroups",
+      "description": "Resolve customer group name to ID",
+      "depends_on": [],
+      "inputs": {
+        "filter": {
+          "name": {
+            "eq": "{{inputs.eligible_customer_group}}"
+          }
+        }
+      },
+      "outputs": {
+        "customer_group_id": "$.items[0].id"
+      },
+      "error_handling": {
+        "on_not_found": "fail",
+        "retry_policy": {
+          "max_attempts": 3,
+          "backoff_ms": 1000
+        }
+      },
+      "telemetry": {
+        "emit_events": ["step_started", "step_completed", "step_failed"],
+        "log_level": "info"
+      }
+    },
+    {
+      "id": "create_promotion",
+      "sequence": 2,
+      "operation": "mutation",
+      "api_endpoint": "createPromotion",
+      "description": "Create the base promotion entity",
+      "depends_on": [],
+      "inputs": {
+        "input": {
+          "enabled": "{{inputs.enabled | default(true)}}",
+          "couponCode": "{{inputs.coupon_code}}",
+          "startsAt": "{{inputs.start_date}}",
+          "endsAt": "{{inputs.end_date}}",
+          "perCustomerUsageLimit": "{{inputs.per_customer_limit}}",
+          "translations": [
+            {
+              "languageCode": "en",
+              "name": "Black Friday {{inputs.coupon_code}} - {{inputs.discount_percentage}}% Off",
+              "description": "{{inputs.discount_percentage}}% discount for orders over ${{inputs.min_order_total_usd}} for {{inputs.eligible_customer_group}} customers"
+            }
+          ]
+        }
+      },
+      "outputs": {
+        "promotion_id": "$.id",
+        "promotion_name": "$.name",
+        "created_at": "$.createdAt"
+      },
+      "transformations": {
+        "coupon_code": "uppercase"
+      },
+      "error_handling": {
+        "on_duplicate": "fetch_existing",
+        "on_validation_error": "fail",
+        "retry_policy": {
+          "max_attempts": 1,
+          "retryable_errors": []
+        }
+      },
+      "telemetry": {
+        "emit_events": ["promotion_created"],
+        "log_level": "info",
+        "metric_name": "promotion_creation"
+      }
+    },
+    {
+      "id": "add_minimum_order_condition",
+      "sequence": 3,
+      "operation": "mutation",
+      "api_endpoint": "updatePromotion",
+      "description": "Add minimum order total condition to promotion",
+      "depends_on": ["create_promotion"],
+      "inputs": {
+        "input": {
+          "id": "{{steps.create_promotion.outputs.promotion_id}}",
+          "conditions": [
+            {
+              "code": "minimum_order_amount",
+              "arguments": [
+                {
+                  "name": "amount",
+                  "value": "{{inputs.min_order_total_usd * 100 | string}}"
+                },
+                {
+                  "name": "taxInclusion",
+                  "value": "\"auto\""
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "outputs": {
+        "condition_id": "$.conditions[0].code"
+      },
+      "transformations": {
+        "amount": "usd_to_cents"
+      },
+      "error_handling": {
+        "on_failure": "rollback",
+        "rollback_steps": ["create_promotion"],
+        "retry_policy": {
+          "max_attempts": 2,
+          "backoff_ms": 500
+        }
+      },
+      "telemetry": {
+        "emit_events": ["condition_added"],
+        "log_level": "debug"
+      },
+      "semantic_mappings": {
+        "ui_term": "Minimum Order Total",
+        "api_field": "minimum_order_amount",
+        "data_type_conversion": "currency_usd_to_cents"
+      }
+    },
+    {
+      "id": "add_customer_group_condition",
+      "sequence": 4,
+      "operation": "mutation",
+      "api_endpoint": "updatePromotion",
+      "description": "Add customer group eligibility condition",
+      "depends_on": ["create_promotion", "resolve_customer_group_id"],
+      "inputs": {
+        "input": {
+          "id": "{{steps.create_promotion.outputs.promotion_id}}",
+          "conditions": [
+            {
+              "code": "customer_group",
+              "arguments": [
+                {
+                  "name": "customerGroupId",
+                  "value": "\"{{steps.resolve_customer_group_id.outputs.customer_group_id}}\""
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "outputs": {
+        "condition_id": "$.conditions[1].code"
+      },
+      "error_handling": {
+        "on_failure": "rollback",
+        "rollback_steps": ["create_promotion", "add_minimum_order_condition"],
+        "retry_policy": {
+          "max_attempts": 2,
+          "backoff_ms": 500
+        }
+      },
+      "telemetry": {
+        "emit_events": ["condition_added"],
+        "log_level": "debug"
+      },
+      "semantic_mappings": {
+        "ui_term": "Customer Group",
+        "api_field": "customer_group",
+        "resolution": "name_to_id_lookup"
+      }
+    },
+    {
+      "id": "add_discount_action",
+      "sequence": 5,
+      "operation": "mutation",
+      "api_endpoint": "updatePromotion",
+      "description": "Add percentage discount action to promotion",
+      "depends_on": ["create_promotion"],
+      "inputs": {
+        "input": {
+          "id": "{{steps.create_promotion.outputs.promotion_id}}",
+          "actions": [
+            {
+              "code": "order_percentage_discount",
+              "arguments": [
+                {
+                  "name": "discount",
+                  "value": "{{inputs.discount_percentage | string}}"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "outputs": {
+        "action_id": "$.actions[0].code",
+        "discount_value": "$.actions[0].args[0].value"
+      },
+      "error_handling": {
+        "on_failure": "rollback",
+        "rollback_steps": ["create_promotion", "add_minimum_order_condition", "add_customer_group_condition"],
+        "retry_policy": {
+          "max_attempts": 2,
+          "backoff_ms": 500
+        }
+      },
+      "telemetry": {
+        "emit_events": ["action_added", "workflow_completed"],
+        "log_level": "info",
+        "metric_name": "discount_action_created"
+      },
+      "semantic_mappings": {
+        "ui_term": "Percentage Discount",
+        "api_field": "order_percentage_discount",
+        "data_type": "integer_percentage"
+      }
+    }
+  ],
+
+  "execution_config": {
+    "mode": "sequential",
+    "parallel_safe_groups": [
+      ["add_minimum_order_condition", "add_customer_group_condition"]
+    ],
+    "timeout_seconds": 30,
+    "dry_run_supported": true,
+    "transactional": false,
+    "rollback_supported": true
+  },
+
+  "observability": {
+    "telemetry": {
+      "trace_id_generation": "uuid_v4",
+      "span_tracking": true,
+      "emit_metrics": true,
+      "log_structured": true
+    },
+    "monitoring": {
+      "success_rate_alert_threshold": 0.95,
+      "latency_p99_threshold_ms": 5000,
+      "error_rate_alert_threshold": 0.05
+    },
+    "audit": {
+      "log_all_mutations": true,
+      "log_inputs": true,
+      "log_outputs": true,
+      "log_user_context": true,
+      "retention_days": 90
+    }
+  },
+
+  "documentation": {
+    "user_intent": "Create a Black Friday promotion code that applies a percentage discount only when specific conditions are met",
+    "business_logic": "The promotion requires both a minimum order value AND customer membership in a specific group. Both conditions must be satisfied.",
+    "ui_workflow": [
+      "Navigate to Marketing → Promotions",
+      "Click 'Create Promotion'",
+      "Enter coupon code and basic details",
+      "Add 'Minimum Order Amount' condition",
+      "Add 'Customer Group' condition",
+      "Add 'Order Percentage Discount' action",
+      "Save promotion"
+    ],
+    "api_workflow": [
+      "Query customerGroups to resolve group name to ID",
+      "Mutate createPromotion with basic details",
+      "Mutate updatePromotion to add minimum_order_amount condition",
+      "Mutate updatePromotion to add customer_group condition",
+      "Mutate updatePromotion to add order_percentage_discount action"
+    ],
+    "semantic_gaps": [
+      {
+        "ui_term": "Order Total Above $100",
+        "api_field": "minimum_order_amount",
+        "transformation": "Multiply by 100 to convert USD to cents",
+        "api_value": "10000"
+      },
+      {
+        "ui_term": "VIP Customer Group",
+        "api_field": "customer_group condition with customerGroupId",
+        "transformation": "Resolve group name to ID via customerGroups query",
+        "api_value": "Resolved ID string"
+      },
+      {
+        "ui_term": "15% Discount",
+        "api_field": "order_percentage_discount action with discount argument",
+        "transformation": "Pass as integer (15, not 0.15)",
+        "api_value": "15"
+      }
+    ]
+  }
+}

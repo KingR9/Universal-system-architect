@@ -1,0 +1,428 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/universal-workflow-v1.0.0.json",
+  "title": "Universal Workflow Definition Schema",
+  "description": "Platform-agnostic workflow definition for reverse-engineered SaaS actions",
+  "version": "1.0.0",
+  "type": "object",
+  "required": ["metadata", "inputs", "security", "steps"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["workflow_name", "workflow_id", "platform", "schema_version"],
+      "properties": {
+        "workflow_name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "Snake_case identifier for the workflow"
+        },
+        "workflow_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Unique identifier for this workflow version"
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description of what the workflow does"
+        },
+        "platform": {
+          "type": "string",
+          "description": "Target platform (e.g., 'vendure', 'salesforce', 'shopify')"
+        },
+        "platform_version": {
+          "type": "string",
+          "description": "Minimum required platform version"
+        },
+        "schema_version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Semantic version of this schema"
+        },
+        "author": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "idempotent": {
+          "type": "boolean",
+          "description": "Whether repeated execution produces the same result"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "properties": {
+        "required": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/parameter"
+          }
+        },
+        "optional": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/parameter"
+          }
+        }
+      }
+    },
+    "security": {
+      "type": "object",
+      "required": ["auth_required", "secrets_handling"],
+      "properties": {
+        "auth_required": {
+          "type": "boolean"
+        },
+        "auth_type": {
+          "type": "string",
+          "enum": ["bearer_token", "api_key", "oauth2", "basic", "custom"]
+        },
+        "secrets_handling": {
+          "type": "string",
+          "enum": ["runtime_injected", "vault", "env_var"],
+          "description": "How credentials are provided"
+        },
+        "minimum_role": {
+          "type": "string",
+          "description": "Minimum RBAC role required"
+        },
+        "scopes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "rate_limit": {
+          "type": "object",
+          "properties": {
+            "requests_per_second": {
+              "type": "number"
+            },
+            "burst_limit": {
+              "type": "integer"
+            }
+          }
+        },
+        "pii_fields": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Fields containing personally identifiable information"
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "properties": {
+        "pre_conditions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/condition"
+          }
+        },
+        "post_conditions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/condition"
+          }
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/step"
+      }
+    },
+    "execution_config": {
+      "type": "object",
+      "properties": {
+        "parallel": {
+          "type": "boolean",
+          "description": "Whether steps can execute in parallel"
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "retry_policy": {
+          "$ref": "#/definitions/retry_policy"
+        },
+        "dry_run_supported": {
+          "type": "boolean"
+        },
+        "rollback_supported": {
+          "type": "boolean"
+        }
+      }
+    },
+    "observability": {
+      "type": "object",
+      "properties": {
+        "telemetry": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "trace_id_required": {
+              "type": "boolean"
+            }
+          }
+        },
+        "audit": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "log_inputs": {
+              "type": "boolean"
+            },
+            "log_outputs": {
+              "type": "boolean"
+            },
+            "retention_days": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    },
+    "documentation": {
+      "type": "object",
+      "properties": {
+        "semantic_gaps": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["ui_term", "api_field"],
+            "properties": {
+              "ui_term": {
+                "type": "string"
+              },
+              "api_field": {
+                "type": "string"
+              },
+              "mapping_logic": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "related_workflows": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "parameter": {
+      "type": "object",
+      "required": ["type", "description"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["string", "number", "integer", "boolean", "array", "object"]
+        },
+        "description": {
+          "type": "string"
+        },
+        "default": {},
+        "validation": {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string"
+            },
+            "min_length": {
+              "type": "integer"
+            },
+            "max_length": {
+              "type": "integer"
+            },
+            "minimum": {
+              "type": "number"
+            },
+            "maximum": {
+              "type": "number"
+            },
+            "enum": {
+              "type": "array"
+            }
+          }
+        },
+        "example": {},
+        "sensitive": {
+          "type": "boolean"
+        }
+      }
+    },
+    "condition": {
+      "type": "object",
+      "required": ["id", "type", "description"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["query", "script", "security", "data"]
+        },
+        "description": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string",
+          "description": "GraphQL query or API call to validate condition"
+        },
+        "condition": {
+          "type": "string",
+          "description": "Boolean expression to evaluate"
+        },
+        "error_message": {
+          "type": "string"
+        },
+        "critical": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "step": {
+      "type": "object",
+      "required": ["id", "operation", "api_endpoint"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "description": "Unique step identifier in snake_case"
+        },
+        "description": {
+          "type": "string"
+        },
+        "operation": {
+          "type": "string",
+          "enum": ["query", "mutation", "workflow", "custom"]
+        },
+        "api_endpoint": {
+          "type": "string",
+          "description": "GraphQL operation or REST endpoint"
+        },
+        "method": {
+          "type": "string",
+          "enum": ["POST", "GET", "PUT", "PATCH", "DELETE"],
+          "description": "HTTP method (for REST APIs)"
+        },
+        "inputs": {
+          "type": "object",
+          "description": "Input parameters with template support"
+        },
+        "outputs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "description": "JSONPath or extraction expression"
+          }
+        },
+        "depends_on": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Step IDs that must complete before this step"
+        },
+        "condition": {
+          "type": "string",
+          "description": "Boolean expression to determine if step should execute"
+        },
+        "error_handling": {
+          "type": "object",
+          "properties": {
+            "strategy": {
+              "type": "string",
+              "enum": ["abort", "retry", "skip", "fallback"]
+            },
+            "max_retries": {
+              "type": "integer"
+            },
+            "fallback_step": {
+              "type": "string"
+            }
+          }
+        },
+        "telemetry": {
+          "type": "object",
+          "properties": {
+            "track_duration": {
+              "type": "boolean"
+            },
+            "log_level": {
+              "type": "string",
+              "enum": ["debug", "info", "warn", "error"]
+            }
+          }
+        }
+      }
+    },
+    "retry_policy": {
+      "type": "object",
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "backoff_strategy": {
+          "type": "string",
+          "enum": ["fixed", "linear", "exponential"]
+        },
+        "initial_delay_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_delay_ms": {
+          "type": "integer"
+        },
+        "retryable_errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
